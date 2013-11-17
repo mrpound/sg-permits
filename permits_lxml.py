@@ -13,7 +13,7 @@ from titlecase import titlecase
 def get_value_from_xpath(tree, path):
 	way = tree.xpath(path)
 	for el in way:
-		try: 
+		try:
 			return el.text.strip().replace(',','')
 		except AttributeError:
 			if len(el) >= 2:
@@ -26,10 +26,14 @@ def doNext(val):
 	o = str(n).zfill(4)
 	return o
 
+def get_element_by_xpath(tree,path):
+	w = tree.xpath(path)
+	for e in w:
+		return e
 
 def getInfo(count):
 
-	url = 'http://a810-bisweb.nyc.gov/bisweb/WorkPermitByIssueDateServlet?allcount=%s&allstartdate_month=01&allstartdate_day=1&allstartdate_year=1989&allenddate_month=01&allenddate_day=1&allenddate_year=1991&allpermittype=SG&go13=+GO+&requestid=0&navflag=T' % count
+	url = 'http://a810-bisweb.nyc.gov/bisweb/WorkPermitByIssueDateServlet?allcount=%s&allstartdate_month=01&allstartdate_day=1&allstartdate_year=2009&allenddate_month=01&allenddate_day=1&allenddate_year=2010&allpermittype=SG&go13=+GO+&requestid=0&navflag=T' % count
 	r = requests.get(url)
 
 	br = mechanize.Browser()
@@ -99,6 +103,22 @@ def getInfo(count):
 			'estimated_cost' : '/html/body/center/table[32]/tr[7]/td[3]',
 		}
 
+		cc_yes = get_element_by_xpath(tree, '/html/body/center/table[33]/tr[6]/td[3]/img/@src')
+		cc_no = get_element_by_xpath(tree, '/html/body/center/table[33]/tr[6]/td[4]/img/@src')
+
+
+		if cc_yes and cc_no == 'images/box.gif':
+			print 'Changeable copy: N/A'
+			results['changeable_copy'] = 'N/A'
+
+		if cc_yes == 'images/box.gif' and cc_no == 'images/no_box.gif':
+			print 'Changeable copy: NO'
+			results['changeable_copy'] = 'No'
+
+		if cc_yes == 'images/yes_box' and cc_no == 'images/no_box.gif':
+			print 'Changeable copy: YES'
+			results['changeable_copy'] = 'Yes'
+
 		#push everything to results dict for output
 		for point, path in mappings.items():
 			results[point] = get_value_from_xpath(tree,path)
@@ -109,13 +129,13 @@ def getInfo(count):
 		return results
 			
 if __name__ == "__main__":
+	getInfo(doNext('0001'))
 
 	with open('output.csv', 'wb') as filo:
-		headers = ['permit_num', 'issue_date', 'BIN', 'job_num', 'house_num', 'street_name', 'borough', 'job_desc', 'total_sqft', 'sign_wording', 'zoning_district']
+		headers = ['permit_num', 'issue_date', 'BIN', 'job_num', 'house_num', 'street_name', 'borough', 'job_desc', 'total_sqft', 'changeable_copy', 'sign_wording', 'zoning_district']
 		dw = csv.DictWriter(filo, delimiter=',', fieldnames=headers, extrasaction='ignore')
 		dw.writeheader()
 		count = 0
 		while count < 31:
 			count = count + 1
-			print 'Writing row: ' + str(count)
 			dw.writerow(getInfo(doNext(count)))
