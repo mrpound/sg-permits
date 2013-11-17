@@ -31,6 +31,9 @@ def get_element_by_xpath(tree,path):
 	for e in w:
 		return e
 
+def handle_image_checkbox(data_point, src):
+	pass
+
 def getInfo(count):
 
 	url = 'http://a810-bisweb.nyc.gov/bisweb/WorkPermitByIssueDateServlet?allcount=%s&allstartdate_month=01&allstartdate_day=1&allstartdate_year=2009&allenddate_month=01&allenddate_day=1&allenddate_year=2010&allpermittype=SG&go13=+GO+&requestid=0&navflag=T' % count
@@ -43,42 +46,41 @@ def getInfo(count):
 	html = r.text
 	soup = BeautifulSoup(html)
  
- 	#results table on WorkPermitByIssueDateServlet
+ 	# Results table on WorkPermitByIssueDateServlet
 	table = soup.findAll('table', cellpadding=3)
 	goods = table[1]
 
-	#all scraped data ends up in this dict, ultimately.
+	# All scraped data ends up in this dict, ultimately.
 	record = {}
 
-	#for each permit
+	# For each permit on the page
 	for row in goods.findAll('tr')[1:]:
-		#print 'Fetching data for: ' + count
 		col = row.findAll('td')
 
-		#url to permit details page
+		# URL to permit details page
 		permit_url = 'http://a810-bisweb.nyc.gov/bisweb/'+str(col[1].a['href'])
 		
-		#set these now because why not
+		# Set these now because why not
 		record['permit_url'] = permit_url
 		record['permit_num'] = col[1].a.string
 		record['issue_date'] = str(col[3].string)
 		record['BIN'] =  str(col[5].a.string)
 
-		#scrape the permit URL
+		# Scrape the permit URL
 		permit_url_response = br.open(permit_url)
 
 		more_soup = BeautifulSoup(permit_url_response.read())
 		
-		#locate the table(s) we need to extract from
+		# Locate the table(s) we need to extract from
 		info_table = more_soup.findAll('table', width=700)
 		
 		our_table = info_table[1]
 
-		#luckily the table cells were structured somewhat with these classes
+		# Luckily the table cells were structured somewhat with these classes
 		table_labels = our_table.findAll('td', {"class":"label"})
 		table_content = our_table.findAll('td', {"class":"content"})
 
-		#combine the two lists of <td>s we just selected, store data in permit_info dict
+		# Combine the two lists of <td>s we just selected, store data in permit_info dict
 		for key,val in zip(table_labels, table_content):
 			if val.a is not None:
 				target = 'http://a810-bisweb.nyc.gov/bisweb/'+val.a['href']
@@ -86,12 +88,12 @@ def getInfo(count):
 				record['job_num'] = val.a.string
 				val.string = val.a.string
 
-		#scrape the job URL
+		# Scrape the job URL
 		r = requests.get(record['job_url'])
 		tree = etree.HTML(r.text)
 		results = {}
 
-		#Map each data point to its XPath in the HTML
+		# Map each data point to its XPath in the HTML
 		mappings = {
 			'house_num'	: '/html/body/center/table[7]/tr[3]/td[2]',
 			'street_name'  : '/html/body/center/table[7]/tr[3]/td[4]',
@@ -100,39 +102,49 @@ def getInfo(count):
 			'sign_wording' : '/html/body/center/table[33]/tr[6]/td[6]/text()',
 			'job_desc' : '/html/body/center/table[19]/tr[3]/td[2]/text()',
 			'zoning_district' : '/html/body/center/table[20]/tr[3]/td[2]/text()',
-			'estimated_cost' : '/html/body/center/table[32]/tr[7]/td[3]',
+			'special_district' : '/html/body/center/table[20]/tr[5]/td[2]/text()',
 		}
 
+		# Determine whether sign is designed for changeable copy
 		cc_yes = get_element_by_xpath(tree, '/html/body/center/table[33]/tr[6]/td[3]/img/@src')
 		cc_no = get_element_by_xpath(tree, '/html/body/center/table[33]/tr[6]/td[4]/img/@src')
 
-
-		if cc_yes and cc_no == 'images/box.gif':
-			print 'Changeable copy: N/A'
+		if cc_yes == 'images/yes_box.gif':
+			results['changeable_copy'] = 'Yes'
+		elif cc_no == 'images/no_box.gif':
+			results['changeable_copy'] = 'No'
+		elif cc_yes and cc_no == 'images/box.gif':
 			results['changeable_copy'] = 'N/A'
 
-		if cc_yes == 'images/box.gif' and cc_no == 'images/no_box.gif':
-			print 'Changeable copy: NO'
-			results['changeable_copy'] = 'No'
+		# Determine sign location (Ground, Roof or Wall)
+		sl_ground = get_element_by_xpath(tree,'/html/body/center/table[32]/tr[6]/td[3]/img/@src')
+		sl_roof = get_element_by_xpath(tree,'/html/body/center/table[32]/tr[6]/td[5]/img/@src')
+		sl_wall = get_element_by_xpath(tree,'/html/body/center/table[32]/tr[6]/td[7]/img/@src')
 
-		if cc_yes == 'images/yes_box' and cc_no == 'images/no_box.gif':
-			print 'Changeable copy: YES'
-			results['changeable_copy'] = 'Yes'
+		if sl_ground == 'images/box_check.gif':
+			results['sign_location'] = 'Ground'
+		elif sl_roof == 'images/box_check.gif':
+			results['sign_location'] = 'Roof'
+		elif sl_wall == 'images/box_check.gif':
+			results['sign_location'] = 'Wall'
+		else:
+			results['sign_location'] = 'N/A'
 
-		#push everything to results dict for output
+		# Push everything to results dict for output
 		for point, path in mappings.items():
 			results[point] = get_value_from_xpath(tree,path)
 
+		# Push permit info we collected earlier to the results dict
 		for idx, val in record.items():
 			results[idx] = record[idx]
+
+		print 'Writing Permit #' + results['permit_num']
 
 		return results
 			
 if __name__ == "__main__":
-	getInfo(doNext('0001'))
-
 	with open('output.csv', 'wb') as filo:
-		headers = ['permit_num', 'issue_date', 'BIN', 'job_num', 'house_num', 'street_name', 'borough', 'job_desc', 'total_sqft', 'changeable_copy', 'sign_wording', 'zoning_district']
+		headers = ['Permit Number', 'Issue Date', 'BIN', 'Job Number', 'House Number', 'Street Name', 'Borough', 'Job Description', 'Sign Location', 'Total Sqft', 'Designed for Changeable Copy', 'Sign Wording', 'Zoning District', 'Special District']
 		dw = csv.DictWriter(filo, delimiter=',', fieldnames=headers, extrasaction='ignore')
 		dw.writeheader()
 		count = 0
