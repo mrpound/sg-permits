@@ -11,7 +11,6 @@ from lxml import etree,html
 import StringIO
 from collections import OrderedDict
 from titlecase import titlecase
-import cProfile, pstats
 
  
 def get_value_from_xpath(tree, path):
@@ -100,9 +99,9 @@ def getInfo(request):
 
 		# Map each data point to its XPath in the HTML
 		mappings = {
-			'house_num'	: '/html/body/center/table[7]/tr[3]/td[2]',
-			'street_name'  : '/html/body/center/table[7]/tr[3]/td[4]',
-			'borough'	: '/html/body/center/table[7]/tr[4]/td[2]',
+			'house_num' : '/html/body/center/table[7]/tr[3]/td[2]',
+			'street_name' : '/html/body/center/table[7]/tr[3]/td[4]',
+			'borough' : '/html/body/center/table[7]/tr[4]/td[2]',
 			'total_sqft' : '/html/body/center/table[32]/tr[7]/td[5]/text()',
 			'sign_wording' : '/html/body/center/table[33]/tr[6]/td[6]/text()',
 			'job_desc' : '/html/body/center/table[19]/tr[3]/td[2]/text()',
@@ -155,19 +154,21 @@ def main(start_date, end_date):
 	starter = explode_date(start_date)
 	ender = explode_date(end_date)
 	outfile = os.path.join('out', 'SG-Permits_'+start_date+'_'+end_date+'.csv')
-
+	start_dts = datetime.datetime.now()
+	
 	with open(outfile, 'wb') as filo:
 
 		log = logging.getLogger('permits')
 		log.setLevel(logging.INFO)
-		fh = logging.FileHandler('permits.log')
+		log_name = os.path.join('logs', 'SGPermits_'+start_dts.strftime("%Y%m%d-%H:%m:%S")+'.log')
+		fh = logging.FileHandler(log_name)
 		frmt = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 		fh.setFormatter(frmt)
 		log.addHandler(fh)
 
-		start_dts = datetime.datetime.now()
+		log.info('Starting process at: ' + str(start_dts))
+		log.info('Processing date range: ' + start_date + ' - ' + end_date)
 
-		log.info('Started processing at: ' + str(start_dts))
 		headers = ['permit_num', 'issue_date', 'BIN', 'job_num', 'house_num', 'street_name', 'borough', 'job_desc', 'sign_location', 'total_sqft', 'changeable_copy', 'sign_wording', 'zoning_district', 'special_district']
 		dw = csv.DictWriter(filo, delimiter=',', fieldnames=headers, extrasaction='ignore')
 		dw.writeheader()
@@ -184,7 +185,7 @@ def main(start_date, end_date):
 			if results:
 				for row in results:
 					dw.writerow(row)
-					log.info('Processed Permit #: ' + row['permit_num'])
+					log.info('Processing Permit #: ' + row['permit_num'])
 				permits_processed = permits_processed + len(results)
 			else:
 				stop_dts = datetime.datetime.now()
@@ -201,4 +202,3 @@ if __name__ == "__main__":
 	start = '1991-01-01'
 	end = '1991-01-04'
 	main(start, end)
-
