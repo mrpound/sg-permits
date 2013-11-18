@@ -1,13 +1,17 @@
+import os
+import sys
 import csv
+import logging
 import requests
 import re
-from time import sleep
+import datetime
 from BeautifulSoup import BeautifulSoup
 import mechanize
 from lxml import etree,html
 import StringIO
 from collections import OrderedDict
 from titlecase import titlecase
+import cProfile, pstats
 
  
 def get_value_from_xpath(tree, path):
@@ -19,7 +23,7 @@ def get_value_from_xpath(tree, path):
 			if len(el) >= 2:
 				return " ".join([word.strip() for word in el.split('\r\n')])
 			else: 
-				return el.strip()
+				return el
 
 def doNext(val):
 	n = int(val)
@@ -31,19 +35,20 @@ def get_element_by_xpath(tree,path):
 	for e in w:
 		return e
 
-def handle_image_checkbox(data_point, src):
-	pass
+def explode_date(date):
+	_date = {}
+	_date['year'] = date.split('-')[0]
+	_date['month'] = date.split('-')[1]
+	_date['day'] = date.split('-')[2]
+	return _date
 
-def getInfo(count):
-
-	url = 'http://a810-bisweb.nyc.gov/bisweb/WorkPermitByIssueDateServlet?allcount=%s&allstartdate_month=01&allstartdate_day=1&allstartdate_year=2009&allenddate_month=01&allenddate_day=1&allenddate_year=2010&allpermittype=SG&go13=+GO+&requestid=0&navflag=T' % count
-	r = requests.get(url)
+def getInfo(request):
 
 	br = mechanize.Browser()
 	br.set_handle_refresh(False)
 	br.set_handle_robots(False) 
 
-	html = r.text
+	html = request.text
 	soup = BeautifulSoup(html)
  
  	# Results table on WorkPermitByIssueDateServlet
@@ -52,11 +57,11 @@ def getInfo(count):
 
 	# All scraped data ends up in this dict, ultimately.
 	record = {}
+	accumulator = []
 
 	# For each permit on the page
 	for row in goods.findAll('tr')[1:]:
 		col = row.findAll('td')
-
 		# URL to permit details page
 		permit_url = 'http://a810-bisweb.nyc.gov/bisweb/'+str(col[1].a['href'])
 		
@@ -98,7 +103,7 @@ def getInfo(count):
 			'house_num'	: '/html/body/center/table[7]/tr[3]/td[2]',
 			'street_name'  : '/html/body/center/table[7]/tr[3]/td[4]',
 			'borough'	: '/html/body/center/table[7]/tr[4]/td[2]',
-			'total_sqft' : '/html/body/center/table[32]/tr[7]/td[5]',
+			'total_sqft' : '/html/body/center/table[32]/tr[7]/td[5]/text()',
 			'sign_wording' : '/html/body/center/table[33]/tr[6]/td[6]/text()',
 			'job_desc' : '/html/body/center/table[19]/tr[3]/td[2]/text()',
 			'zoning_district' : '/html/body/center/table[20]/tr[3]/td[2]/text()',
@@ -114,6 +119,8 @@ def getInfo(count):
 		elif cc_no == 'images/no_box.gif':
 			results['changeable_copy'] = 'No'
 		elif cc_yes and cc_no == 'images/box.gif':
+			results['changeable_copy'] = 'N/A'
+		else:
 			results['changeable_copy'] = 'N/A'
 
 		# Determine sign location (Ground, Roof or Wall)
@@ -138,16 +145,60 @@ def getInfo(count):
 		for idx, val in record.items():
 			results[idx] = record[idx]
 
-		print 'Writing Permit #' + results['permit_num']
+		accumulator.append(results)
+		print "Processing permit: " + results['permit_num']
 
-		return results
-			
-if __name__ == "__main__":
-	with open('output.csv', 'wb') as filo:
-		headers = ['Permit Number', 'Issue Date', 'BIN', 'Job Number', 'House Number', 'Street Name', 'Borough', 'Job Description', 'Sign Location', 'Total Sqft', 'Designed for Changeable Copy', 'Sign Wording', 'Zoning District', 'Special District']
+	return accumulator
+
+def main(start_date, end_date):
+
+	starter = explode_date(start_date)
+	ender = explode_date(end_date)
+	outfile = os.path.join('out', 'SG-Permits_'+start_date+'_'+end_date+'.csv')
+
+	with open(outfile, 'wb') as filo:
+
+		log = logging.getLogger('permits')
+		log.setLevel(logging.INFO)
+		fh = logging.FileHandler('permits.log')
+		frmt = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+		fh.setFormatter(frmt)
+		log.addHandler(fh)
+
+		start_dts = datetime.datetime.now()
+
+		log.info('Started processing at: ' + str(start_dts))
+		headers = ['permit_num', 'issue_date', 'BIN', 'job_num', 'house_num', 'street_name', 'borough', 'job_desc', 'sign_location', 'total_sqft', 'changeable_copy', 'sign_wording', 'zoning_district', 'special_district']
 		dw = csv.DictWriter(filo, delimiter=',', fieldnames=headers, extrasaction='ignore')
 		dw.writeheader()
+
 		count = 0
-		while count < 31:
-			count = count + 1
-			dw.writerow(getInfo(doNext(count)))
+		permits_processed = 0
+
+		while count < 9991:
+			count = doNext(count)
+			url = 'http://a810-bisweb.nyc.gov/bisweb/WorkPermitByIssueDateServlet?allcount=%s&allstartdate_month=%s&allstartdate_day=%s&allstartdate_year=%s&allenddate_month=%s&allenddate_day=%s&allenddate_year=%s&allpermittype=SG&go13=+GO+&requestid=0&navflag=T' % (count, starter['month'], starter['day'], starter['year'], ender['month'], ender['day'], ender['year'])
+			r = requests.get(url)
+			log.info("Fetching URL: " + url)
+			results = getInfo(r)
+			if results:
+				for row in results:
+					dw.writerow(row)
+					log.info('Processed Permit #: ' + row['permit_num'])
+				permits_processed = permits_processed + len(results)
+			else:
+				stop_dts = datetime.datetime.now()
+				fin_dts = stop_dts - start_dts
+				done = 'No more records found. Finished processing %d records in %s second(s)' % (permits_processed, fin_dts.seconds)
+				log.info(done)
+				sys.exit(1)
+
+			count = int(count) + 30	
+
+			
+if __name__ == "__main__":
+	
+	start = '1991-01-01'
+	end = '1991-01-04'
+	main(start, end)
+
