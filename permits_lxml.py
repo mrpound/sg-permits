@@ -11,7 +11,7 @@ from lxml import etree,html
 import StringIO
 from collections import OrderedDict
 from titlecase import titlecase
-
+import time
  
 def get_value_from_xpath(tree, path):
 	way = tree.xpath(path)
@@ -93,7 +93,12 @@ def getInfo(request):
 				val.string = val.a.string
 
 		# Scrape the job URL
-		r = requests.get(record['job_url'])
+		try:
+			r = requests.get(record['job_url'])
+		except KeyError:
+			print 'No response from BIS. Last record processed was ' + record['permit_num'] + 'Job Num: ' + record['issue_date']
+			sys.exit(1)
+
 		tree = etree.HTML(r.text)
 		results = {}
 
@@ -146,6 +151,7 @@ def getInfo(request):
 
 		accumulator.append(results)
 		print "Processing permit: " + results['permit_num']
+		time.sleep(5)
 
 	return accumulator
 
@@ -169,7 +175,7 @@ def main(start_date, end_date):
 		log.info('Starting process at: ' + str(start_dts))
 		log.info('Processing date range: ' + start_date + ' - ' + end_date)
 
-		headers = ['permit_num', 'issue_date', 'BIN', 'job_num', 'house_num', 'street_name', 'borough', 'job_desc', 'sign_location', 'total_sqft', 'changeable_copy', 'sign_wording', 'zoning_district', 'special_district']
+		headers = ['permit_num', 'issue_date', 'BIN', 'job_num', 'house_num', 'street_name', 'borough', 'job_desc', 'sign_location', 'total_sqft', 'changeable_copy', 'sign_wording', 'zoning_district', 'special_district', 'permit_url']
 		dw = csv.DictWriter(filo, delimiter=',', fieldnames=headers, extrasaction='ignore')
 		dw.writeheader()
 
@@ -192,13 +198,13 @@ def main(start_date, end_date):
 				fin_dts = stop_dts - start_dts
 				done = 'No more records found. Finished processing %d records in %s second(s)' % (permits_processed, fin_dts.seconds)
 				log.info(done)
-				sys.exit(1)
+				sys.exit(2)
 
 			count = int(count) + 30	
 
 			
 if __name__ == "__main__":
 	
-	start = '1991-01-01'
-	end = '1991-01-04'
+	start = '1994-03-22'
+	end = '1996-01-01'
 	main(start, end)
