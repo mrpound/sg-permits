@@ -151,7 +151,7 @@ def getInfo(request):
 
 		accumulator.append(results)
 		print "Processing permit: " + results['permit_num']
-		time.sleep(5)
+		time.sleep(3)
 
 	return accumulator
 
@@ -173,7 +173,7 @@ def main(start_date, end_date):
 		log.addHandler(fh)
 
 		log.info('Starting process at: ' + str(start_dts))
-		log.info('Processing date range: ' + start_date + ' - ' + end_date)
+		log.info('Processing date range: ' + start_date + ' to ' + end_date)
 
 		headers = ['permit_num', 'issue_date', 'BIN', 'job_num', 'house_num', 'street_name', 'borough', 'job_desc', 'sign_location', 'total_sqft', 'changeable_copy', 'sign_wording', 'zoning_district', 'special_district', 'permit_url']
 		dw = csv.DictWriter(filo, delimiter=',', fieldnames=headers, extrasaction='ignore')
@@ -205,6 +205,7 @@ def main(start_date, end_date):
 			
 if __name__ == "__main__":
 	
-	start = '1994-03-22'
-	end = '1996-01-01'
+	start = sys.argv[1]
+	end = sys.argv[2]
+	print "main('%s', '%s')" % (start, end)
 	main(start, end)
